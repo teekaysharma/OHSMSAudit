@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Report Functions Test</title>
+</head>
+<body>
+    <h1>Testing Report Generation Functions</h1>
+    <div id="results"></div>
+    
+    <script>
+        // Test if we can access the application at localhost:5173
+        fetch('http://localhost:5173')
+            .then(response => response.text())
+            .then(html => {
+                document.getElementById('results').innerHTML = '<p>✅ Application is accessible</p>';
+                
+                // Create an iframe to load the application
+                const iframe = document.createElement('iframe');
+                iframe.src = 'http://localhost:5173';
+                iframe.style.width = '100%';
+                iframe.style.height = '600px';
+                iframe.onload = function() {
+                    setTimeout(() => {
+                        try {
+                            const iframeWindow = iframe.contentWindow;
+                            const iframeDocument = iframe.contentDocument;
+                            
+                            // Check if functions exist
+                            const hasCreateExecutiveReportHTML = typeof iframeWindow.createExecutiveReportHTML === 'function';
+                            const hasCalculateOverallScore = typeof iframeWindow.calculateOverallScore === 'function';
+                            const hasReportGeneration = typeof iframeWindow.reportGeneration === 'object';
+                            
+                            let testResults = '<h2>Function Availability Test Results:</h2>';
+                            testResults += `<p>createExecutiveReportHTML: ${hasCreateExecutiveReportHTML ? '✅ Available' : '❌ Not Available'}</p>`;
+                            testResults += `<p>calculateOverallScore: ${hasCalculateOverallScore ? '✅ Available' : '❌ Not Available'}</p>`;
+                            testResults += `<p>reportGeneration object: ${hasReportGeneration ? '✅ Available' : '❌ Not Available'}</p>`;
+                            
+                            // Test clicking the report generation button
+                            const reportBtn = iframeDocument.getElementById('generateDetailedReportBtn');
+                            if (reportBtn) {
+                                testResults += '<p>✅ Generate Executive Report button found</p>';
+                                
+                                // Simulate click and capture console messages
+                                let consoleMessages = [];
+                                const originalConsoleLog = iframeWindow.console.log;
+                                const originalConsoleError = iframeWindow.console.error;
+                                const originalConsoleWarn = iframeWindow.console.warn;
+                                
+                                iframeWindow.console.log = function(...args) {
+                                    consoleMessages.push('LOG: ' + args.join(' '));
+                                    originalConsoleLog.apply(this, args);
+                                };
+                                
+                                iframeWindow.console.error = function(...args) {
+                                    consoleMessages.push('ERROR: ' + args.join(' '));
+                                    originalConsoleError.apply(this, args);
+                                };
+                                
+                                iframeWindow.console.warn = function(...args) {
+                                    consoleMessages.push('WARN: ' + args.join(' '));
+                                    originalConsoleWarn.apply(this, args);
+                                };
+                                
+                                // Click the button
+                                reportBtn.click();
+                                
+                                setTimeout(() => {
+                                    testResults += '<h3>Console Messages After Button Click:</h3>';
+                                    if (consoleMessages.length > 0) {
+                                        consoleMessages.forEach(msg => {
+                                            const color = msg.startsWith('ERROR') ? 'red' : msg.startsWith('WARN') ? 'orange' : 'black';
+                                            testResults += `<p style="color: ${color};">${msg}</p>`;
+                                        });
+                                    } else {
+                                        testResults += '<p>No console messages captured</p>';
+                                    }
+                                    
+                                    document.getElementById('results').innerHTML = testResults;
+                                }, 3000);
+                                
+                            } else {
+                                testResults += '<p>❌ Generate Executive Report button not found</p>';
+                            }
+                            
+                            document.getElementById('results').innerHTML = testResults;
+                            
+                        } catch (error) {
+                            document.getElementById('results').innerHTML += `<p style="color: red;">❌ Error testing functions: ${error.message}</p>`;
+                        }
+                    }, 2000);
+                };
+                
+                document.body.appendChild(iframe);
+            })
+            .catch(error => {
+                document.getElementById('results').innerHTML = `<p style="color: red;">❌ Cannot access application: ${error.message}</p>`;
+            });
+    </script>
+</body>
+</html>

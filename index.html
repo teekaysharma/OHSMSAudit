@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OHS MS Audit & Site Audit Tool</title>
+    
+    <!-- Cache control headers -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    
+    <!-- Version check and force reload -->
+    <script>
+        (function() {
+            const currentVersion = '2.3';
+            const savedVersion = localStorage.getItem('appVersion');
+            
+            if (savedVersion !== currentVersion) {
+                localStorage.setItem('appVersion', currentVersion);
+                window.location.reload(true);
+            }
+        })();
+    </script>
+    
+    <!-- Initialize app object before loading any scripts -->
+    <script>
+        // Initialize global app object to prevent undefined errors
+        window.app = {
+            masterConfig: {
+                management: {},
+                site: {}
+            },
+            inspectionData: {
+                projects: {},
+                currentProject: ''
+            }
+        };
+        
+        // Global error handler to catch initialization errors
+        window.addEventListener('error', function(event) {
+            // Ignore extension-related errors
+            if (event.message && event.message.includes('Promised response from onMessage listener')) {
+                return;
+            }
+            
+            console.error('Global error handler:', {
+                message: event.message,
+                filename: event.filename,
+                lineno: event.lineno,
+                colno: event.colno,
+                error: event.error
+            });
+            
+            // Prevent default error handling
+            event.preventDefault();
+        });
+
+        window.addEventListener('unhandledrejection', function(event) {
+            console.error('Unhandled promise rejection:', event.reason);
+            event.preventDefault();
+        });
+    </script>
+    
+    <!-- Conditional polyfill loading -->
+    <script>
+        if (!window.fetch || !Array.prototype.includes || !Object.entries || !window.Promise) {
+            const coreJsScript = document.createElement('script');
+            coreJsScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/core-js/3.20.3/minified.js';
+            document.head.appendChild(coreJsScript);
+            
+            const fetchScript = document.createElement('script');
+            fetchScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/whatwg-fetch/3.6.2/fetch.umd.min.js';
+            document.head.appendChild(fetchScript);
+        }
+    </script>
+    
+    <!-- Chart.js will be loaded via main.js imports -->
+</head>
+<body>
+    <div class="container">
+        <!-- Header with Project Management -->
+        <div class="header">
+            <div class="header-top">
+                <h1>OHS Management System</h1>
+                <p>Safety Management System Audit & Site Safety Audit Tool</p>
+            </div>
+            
+            <div class="header-controls">
+                <div class="control-group project-controls">
+                    <div class="control-group-title">Project Selection</div>
+                    <div class="project-selector">
+                        <select id="projectSelector">
+                            <option value="">Select a project</option>
+                        </select>
+                    </div>
+                    <div class="site-management">
+                        <span class="info-text">Manage projects in System Settings tab</span>
+                    </div>
+                </div>
+                
+                <div class="control-group audit-controls">
+                    <div class="control-group-title">Audit Details</div>
+                    <div class="audit-details">
+                        <select id="siteSelector" class="site-name-dropdown">
+                            <option value="">Select a site</option>
+                        </select>
+                        <input type="date" id="inspectionDate">
+                        <input type="text" id="leadAuditor" placeholder="Lead Auditor">
+                        <input type="text" id="projectDirector" placeholder="Project Director">
+                    </div>
+                    <div class="site-management">
+                        <span class="info-text">Manage sites in System Settings tab</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Tab Navigation -->
+        <div class="tabs">
+            <button class="tab active" data-tab-name="dashboard">Dashboard</button>
+            <button class="tab" data-tab-name="management">Management System <span class="audit-indicator project">Project-wide</span></button>
+            <button class="tab" data-tab-name="site-performance">Site Performance <span class="audit-indicator site">Site-specific</span></button>
+            <button class="tab" data-tab-name="reports">Reports</button>
+            <button class="tab" data-tab-name="master">System Settings</button>
+        </div>
+        
+        <!-- Tab Contents -->
+        <div id="dashboard" class="tab-content active">
+            <div class="performance-summary">
+                <h3>Overall Performance Summary</h3>
+                <div class="audit-status">
+                    <div class="audit-status-item">
+                        <div class="audit-status-indicator" id="managementAuditStatus"></div>
+                        <span>Management System Audit</span>
+                    </div>
+                    <div class="audit-status-item">
+                        <div class="audit-status-indicator" id="siteAuditStatus"></div>
+                        <span>Site Performance Audit</span>
+                    </div>
+                </div>
+                <div class="summary-grid">
+                    <div class="summary-item">
+                        <span class="value" id="overallScore">0.0</span>
+                        <span class="label">Overall Score</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="value" id="overallPercentage">0%</span>
+                        <span class="label">Percentage</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="value" id="overallRating">Unacceptable</span>
+                        <span class="label">Rating</span>
+                    </div>
+                    <div class="summary-item">
+                        <span class="value" id="totalItemsInspected">0</span>
+                        <span class="label">Items Inspected</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Top row with pie and radar charts -->
+            <div class="dashboard-charts-top">
+                <div class="chart-container">
+                    <h3>Performance by Rating</h3>
+                    <div class="chart-controls">
+                        <button id="ratingChartScopeAll" class="active">Current Site</button>
+                        <button id="ratingChartScopeManagement">Management</button>
+                        <button id="ratingChartScopeAllSites">All Sites</button>
+                        <button id="ratingChartScopeTotal">Project Overview</button>
+                    </div>
+                    <div class="chart-canvas-container">
+                        <canvas id="ratingChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-container">
+                    <h3>Score Distribution</h3>
+                    <div class="chart-controls">
+                        <button id="distributionChartScopeAll" class="active">Current Site</button>
+                        <button id="distributionChartScopeManagement">Management</button>
+                        <button id="distributionChartScopeAllSites">All Sites</button>
+                        <button id="distributionChartScopeTotal">Project Overview</button>
+                    </div>
+                    <div class="chart-canvas-container">
+                        <canvas id="distributionChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Bottom row with bar chart -->
+            <div class="dashboard-charts-bottom">
+                <div class="chart-container full-width">
+                    <h3>Performance by Audit Type</h3>
+                    <div class="chart-controls">
+                        <button id="chartScopeAll" class="active">Current Site</button>
+                        <button id="chartScopeManagement">Management</button>
+                        <button id="chartScopeAllSites">All Sites</button>
+                        <button id="chartScopeTotal">Project Overview</button>
+                    </div>
+                    <div class="chart-view-controls">
+                        <button id="chartViewType" class="chart-view-btn active" data-view="type">By Audit Type</button>
+                        <button id="chartViewSections" class="chart-view-btn" data-view="sections">By Sections</button>
+                    </div>
+                    <div class="chart-canvas-container">
+                        <canvas id="managementChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Automatic Recommendations Section -->
+            <div class="recommendations-section">
+                <h3>Automatic Recommendations <span class="edit-indicator" id="editRecommendationsBtn" title="Click to edit recommendations">✏️</span></h3>
+                <div id="recommendationsContent" class="recommendations-content" contenteditable="false"></div>
+                <div class="recommendations-actions">
+                    <button class="btn btn-secondary" id="regenerateRecommendationsBtn">Regenerate Recommendations</button>
+                    <button class="btn btn-secondary" id="showSampleRecommendationsBtn">Show Sample Data</button>
+                    <button class="btn btn-green" id="saveRecommendationsBtn" style="display: none;">Save Changes</button>
+                    <button class="btn btn-secondary" id="cancelEditRecommendationsBtn" style="display: none;">Cancel</button>
+                </div>
+            </div>
+            
+            <div class="scoring-legend">
+                <h4>Performance Scoring Criteria</h4>
+                <div class="legend-row">
+                    <div class="legend-score" style="background: #00b894;">E</div>
+                    <span><strong>Excellent:</strong> > 90% - Exceeding requirements</span>
+                </div>
+                <div class="legend-row">
+                    <div class="legend-score" style="background: #38a169;">G</div>
+                    <span><strong>Good:</strong> 90% > G > 80% - Good compliance</span>
+                </div>
+                <div class="legend-row">
+                    <div class="legend-score" style="background: #d69e2e;">S</div>
+                    <span><strong>Satisfactory:</strong> 80% > S > 70% - Occasional non-conformance</span>
+                </div>
+                <div class="legend-row">
+                    <div class="legend-score" style="background: #dd6b20;">L</div>
+                    <span><strong>Low:</strong> 70% > L > 50% - Significant improvements needed</span>
+                </div>
+                <div class="legend-row">
+                    <div class="legend-score" style="background: #c53030;">U</div>
+                    <span><strong>Unacceptable:</strong> &lt; 50% - Critical issues</span>
+                </div>
+            </div>
+            
+            <div class="scoring-legend">
+                <h4>Score Allocation System</h4>
+                <div class="legend-row">
+                    <div class="score-0" style="width: 20px; height: 20px; border-radius: 50%; display: inline-block;"></div>
+                    <span><strong>0 - Not Applicable/Not Observed:</strong> Item does not apply or was not observed during audit</span>
+                </div>
+                <div class="legend-row">
+                    <div class="score-1" style="width: 20px; height: 20px; border-radius: 50%; display: inline-block;"></div>
+                    <span><strong>1 - Major Non-Conformance:</strong> Serious deficiency requiring immediate corrective action</span>
+                </div>
+                <div class="legend-row">
+                    <div class="score-2" style="width: 20px; height: 20px; border-radius: 50%; display: inline-block;"></div>
+                    <span><strong>2 - Minor Non-Conformance:</strong> Deficiency requiring corrective action in specified timeframe</span>
+                </div>
+                <div class="legend-row">
+                    <div class="score-3" style="width: 20px; height: 20px; border-radius: 50%; display: inline-block;"></div>
+                    <span><strong>3 - Observation/Improvement Opportunity:</strong> Area for improvement but not a non-conformance</span>
+                </div>
+                <div class="legend-row">
+                    <div class="score-4" style="width: 20px; height: 20px; border-radius: 50%; display: inline-block;"></div>
+                    <span><strong>4 - Conformance:</strong> Meets requirements</span>
+                </div>
+                <div class="legend-row">
+                    <div class="score-5" style="width: 20px; height: 20px; border-radius: 50%; display: inline-block;"></div>
+                    <span><strong>5 - Best Practice:</strong> Exceeds requirements and demonstrates excellence</span>
+                </div>
+            </div>
+            
+            <div class="executive-summary">
+                <h3>Executive Summary</h3>
+                <div id="dashboardExecutiveSummary" contenteditable="true" style="padding: 20px; background: #f8f9ff; border: 1px solid #ddd; border-radius: 10px; min-height: 150px; line-height: 1.6;"></div>
+            </div>
+        </div>
+        
+        <div id="management" class="tab-content">
+            <h2>Health & Safety Management System Audit <span class="audit-indicator project">Project-wide</span></h2>
+            <p style="margin-bottom: 20px; color: #666;">This audit is conducted once or twice per project and applies to all sites. The results are shared across the entire project.</p>
+            
+            <!-- Scoring Categories Tabs -->
+            <div class="scoring-categories">
+                <div class="scoring-category-tab active" data-category="conformance">Conformance</div>
+                <div class="scoring-category-tab" data-category="best-practices">Best Practices</div>
+                <div class="scoring-category-tab" data-category="non-conformance">Non-Conformance Classification</div>
+            </div>
+            
+            <div id="managementElements"></div>
+        </div>
+        
+        <div id="site-performance" class="tab-content">
+            <h2>Health & Safety Site Performance Audit <span class="audit-indicator site">Site-specific</span></h2>
+            <p style="margin-bottom: 20px; color: #666;">This audit is specific to the selected site. Each new site starts with zero scores.</p>
+            
+            <div id="sitePerformanceAudit"></div>
+        </div>
+        
+        <div id="reports" class="tab-content">
+            <h2>Audit Reports</h2>
+            
+            <!-- Report Customization Options -->
+            <div class="report-customization">
+                <h3>Report Customization</h3>
+                <div class="customization-options">
+                    <div class="customization-group">
+                        <h4>Report Sections</h4>
+                        <div class="custom-option">
+                            <input type="checkbox" id="includeBestPractices" checked>
+                            <label for="includeBestPractices">Include Best Practices</label>
+                        </div>
+                        <div class="custom-option">
+                            <input type="checkbox" id="includeNonConformances" checked>
+                            <label for="includeNonConformances">Include Non-Conformances</label>
+                        </div>
+                        <div class="custom-option">
+                            <input type="checkbox" id="includeRecommendations" checked>
+                            <label for="includeRecommendations">Include Recommendations</label>
+                        </div>
+                        <div class="custom-option">
+                            <input type="checkbox" id="includeSignatures" checked>
+                            <label for="includeSignatures">Include Signature Section</label>
+                        </div>
+                    </div>
+                    <div class="customization-group">
+                        <h4>Chart Selection</h4>
+                        <div class="custom-option">
+                            <input type="checkbox" id="includeRatingChart" checked>
+                            <label for="includeRatingChart">Performance by Rating Chart</label>
+                        </div>
+                        <div class="custom-option">
+                            <input type="checkbox" id="includeDistributionChart" checked>
+                            <label for="includeDistributionChart">Score Distribution Chart</label>
+                        </div>
+                        <div class="custom-option">
+                            <input type="checkbox" id="includeManagementChart" checked>
+                            <label for="includeManagementChart">Performance by Audit Type Chart</label>
+                        </div>
+                        <div class="custom-option">
+                            <input type="checkbox" id="includeComparisonChart">
+                            <label for="includeComparisonChart">Site Comparison Chart</label>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="report-site-selector">
+                <label for="reportSiteSelector">Generate report for:</label>
+                <select id="reportSiteSelector">
+                    <option value="management">Management System Only</option>
+                    <option value="all">All Sites</option>
+                </select>
+            </div>
+            
+            <div class="report-header-editor">
+                <h3>Report Header Configuration</h3>
+                <div class="header-config-grid">
+                    <div class="header-fields">
+                        <div class="header-field">
+                            <label for="reportTitle">Report Title</label>
+                            <input type="text" id="reportTitle" placeholder="Enter report title" value="OCCUPATIONAL HEALTH & SAFETY AUDIT REPORT">
+                        </div>
+                        <div class="header-field">
+                            <label for="reportSubtitle">Subtitle</label>
+                            <input type="text" id="reportSubtitle" placeholder="Enter subtitle" value="Management System & Site Performance Audit">
+                        </div>
+                        <div class="header-field">
+                            <label for="companyName">Company/Organization</label>
+                            <input type="text" id="companyName" placeholder="Company name" value="">
+                        </div>
+                        <div class="header-field">
+                            <label for="reportDescription">Description</label>
+                            <textarea id="reportDescription" rows="3" placeholder="Brief description or additional details"></textarea>
+                        </div>
+                    </div>
+                    <div class="logo-upload-section">
+                        <div id="logoPreview" style="display: none;">
+                            <img id="logoImage" class="logo-preview" alt="Company Logo">
+                        </div>
+                        <div id="logoUploadArea">
+                            <p style="margin-bottom: 10px; color: #666;">Company Logo</p>
+                            <input type="file" id="logoFileInput" accept="image/*" style="display: none;">
+                            <button type="button" class="logo-upload-btn" id="uploadLogoBtn">Upload Logo</button>
+                            <button type="button" class="btn btn-sm btn-danger" id="removeLogoBtn" style="display: none;">Remove Logo</button>
+                            <div id="logoPreview" class="logo-preview" style="display: none;">
+                                <img id="logoImage" alt="Company Logo Preview" class="logo-preview-img">
+                            </div>
+                            <input type="file" id="logoFileInput" accept="image/*" style="display: none;">
+                        </div>
+                        <button type="button" class="logo-remove-btn" id="removeLogoBtn" style="display: none;">Remove Logo</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="export-controls">
+               <button class="btn" id="generateDetailedReportBtn" >Generate Executive Report</button>
+                <button class="btn btn-secondary" id="exportHtmlReportBtn">Export as HTML</button>
+            </div>
+            
+            <!-- Site Performance Comparison Section -->
+            <div class="report-section">
+                <h3>Site Performance Comparison</h3>
+                <div class="site-comparison-controls">
+                    <div class="site-selector-multiple">
+                        <label for="comparisonSiteSelector">Select sites to compare:</label>
+                        <select id="comparisonSiteSelector" multiple>
+                            <!-- Sites will be populated here -->
+                        </select>
+                        <button class="btn btn-secondary" id="selectAllSitesBtn">Select All</button>
+                        <button class="btn btn-secondary" id="clearSiteSelectionBtn">Clear</button>
+                    </div>
+                    <div class="chart-type-selector">
+                        <button class="active" data-chart-type="stacked">Stacked Bar</button>
+                        <button data-chart-type="grouped">Grouped Bar</button>
+                        <button data-chart-type="radar">Radar</button>
+                    </div>
+                </div>
+                <div class="management-audit-inclusion">
+                    <label>
+                        <input type="checkbox" id="includeManagementAudit">
+                        Include Management Audit Scores
+                    </label>
+                </div>
+                <div class="chart-container full-width">
+                    <div class="chart-canvas-container">
+                        <canvas id="siteComparisonChart"></canvas>
+                    </div>
+                </div>
+                <div id="noSiteComparisonData" class="no-data-message" style="display: none;">
+                    Please select at least two sites to compare performance metrics.
+                </div>
+            </div>
+        </div>
+        
+        <div id="master" class="tab-content">
+            <div class="master-controls">
+                <h3>System Settings</h3>
+                <p>Configure audit elements and audit items. Changes here will update all tabs.</p>
+                <div class="export-controls">
+                    <button class="btn btn-green" id="loadDefaultTemplateBtn">Load Default Template</button>
+                    <button class="btn btn-secondary" id="saveCustomTemplateBtn">Save Custom Template</button>
+                    <button class="btn btn-secondary" id="loadCustomTemplateBtn">Load Custom Template</button>
+                    <button class="btn btn-secondary" id="exportConfigBtn">Export Configuration</button>
+                    <button class="btn btn-secondary" id="importConfigBtn">Import Configuration</button>
+                    <button class="btn btn-secondary" id="exportDataBtn">Export All Audit Data</button>
+                    <button class="btn btn-secondary" id="importDataBtn">Import Audit Data</button>
+                    <button class="btn btn-danger" id="resetBtn">Reset All Data</button>
+                </div>
+            </div>
+            
+            <!-- System Settings Container with Dynamic Question Management -->
+            <div class="system-settings-container">
+                <!-- Project Management Section -->
+                <div class="project-management-settings">
+                    <h3>Project Management</h3>
+                    <div class="info-note">
+                        <strong>Note:</strong> Manage your audit projects here. Create new projects, clone existing ones, or manage project-wide settings.
+                    </div>
+                    
+                    <div class="project-actions">
+                        <button class="btn btn-green" id="addProjectBtn">Add New Project</button>
+                        <button class="btn btn-blue" id="cloneProjectBtn">Clone Current Project</button>
+                        <button class="btn btn-secondary" id="refreshProjectsBtn">Refresh Projects List</button>
+                    </div>
+                    
+                    <div class="project-list">
+                        <h4>Existing Projects</h4>
+                        <div class="project-list-container" id="projectListContainer">
+                            <!-- Projects will be dynamically populated -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Site Management Section -->
+                <div class="site-management-settings">
+                    <h3>Site Management</h3>
+                    <div class="info-note">
+                        <strong>Note:</strong> This is the only place to manage sites. Add, edit, or remove sites from your audit system. Each new site starts with zero scores for site performance audits.
+                    </div>
+                    
+                    <div class="site-actions">
+                        <button class="btn btn-green" id="addMultipleSitesBtn">Add Multiple Sites</button>
+                        <button class="btn btn-secondary" id="exportSitesListBtn">Export Sites List</button>
+                    </div>
+                    
+                    <div class="add-site-form">
+                        <input type="text" id="newSiteName" placeholder="Enter new site name">
+                        <button class="btn btn-green" id="addSiteBtn">Add Site</button>
+                    </div>
+                    
+                    <div class="site-list">
+                        <h4>Existing Sites</h4>
+                        <div class="site-list-container" id="siteListContainer">
+                            <!-- Sites will be dynamically populated -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Question Management Section -->
+                <div class="question-management">
+                    <h3>Question Management</h3>
+                    <div class="info-note">
+                        <strong>Note:</strong> View and manage all audit questions loaded from templates. Questions are organized by Management System and Site Performance categories.
+                    </div>
+                    
+                    <div class="template-actions">
+                        <button class="btn btn-green" id="loadDefaultTemplateBtn2">Load Default Template</button>
+                        <button class="btn btn-secondary" id="refreshQuestionsBtn">Refresh Questions List</button>
+                    </div>
+                    
+                    <div class="questions-tabs-container">
+                        <div class="questions-tab-navigation">
+                            <button class="questions-tab active" data-questions-tab="management">
+                                <span class="tab-icon">🏢</span>
+                                Management System Questions
+                                <span class="tab-count" id="managementQuestionsCount">(0)</span>
+                            </button>
+                            <button class="questions-tab" data-questions-tab="site">
+                                <span class="tab-icon">🏭</span>
+                                Site Performance Questions
+                                <span class="tab-count" id="siteQuestionsCount">(0)</span>
+                            </button>
+                        </div>
+                        
+                        <div class="questions-tab-content">
+                            <div class="questions-panel active" id="managementQuestionsPanel">
+                                <div class="questions-container" id="managementQuestionsContainer">
+                                    <!-- Management questions will be dynamically populated -->
+                                </div>
+                            </div>
+                            
+                            <div class="questions-panel" id="siteQuestionsPanel">
+                                <div class="questions-container" id="siteQuestionsContainer">
+                                    <!-- Site questions will be dynamically populated -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Legacy container for existing JavaScript -->
+                    <div id="questionManagementContainer" style="display: none;">
+                        <!-- Content will be dynamically populated by JavaScript -->
+                    </div>
+                </div>
+            </div>
+            
+            <div class="master-config-wrapper">
+                <div id="managementMasterConfig"></div>
+                <div id="siteMasterConfig"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Report Modal -->
+    <div id="reportModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" id="closeModalBtn">&times;</span>
+            <div id="reportContent"></div>
+            <div class="report-buttons" style="text-align: right; margin-top: 20px;">
+                <button class="btn" id="resetReportBtn">Reset to Auto-Generated</button>
+                <button class="btn" id="printReportBtn">Print / Save as PDF</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="report-footer" id="print-footer"></div>
+    
+    <!-- Main JavaScript entry point -->
+    <script type="module" src="/main.js"></script>
+</body>
+</html>
